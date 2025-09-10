@@ -80,7 +80,8 @@ class CoinbaseClient(ExchangeClient):
         resp = await self._async(
             self.rest.list_orders,
             product_id=symbol,
-            order_status=["OPEN", "PENDING"],
+            # order_status=["OPEN", "PENDING"],
+            order_status=["OPEN"],
         )
         raw = resp.to_dict().get("orders", []) if hasattr(resp, "to_dict") else resp.get("orders", [])
         out: List[Order] = []
@@ -157,28 +158,32 @@ class CoinbaseClient(ExchangeClient):
             """WS callback parsing ticker messages into ``TopOfBook`` objects."""
             try:
                 msg = json.loads(raw)
+                print(msg)
             except Exception:
                 return
 
             if msg.get("channel") != "ticker":
                 return
             events = msg.get("events", [])
-            for ev in events:
-                if ev.get("product_id") not in symbols:
-                    continue
-                bid = ev.get("best_bid") or ev.get("bid_price")
-                ask = ev.get("best_ask") or ev.get("ask_price")
-                ts = ev.get("time")
-                tob = TopOfBook(
-                    symbol=ev.get("product_id"),
-                    bid=float(bid),
-                    ask=float(ask),
-                    ts=float(ts) if ts is not None else time.time(),
-                )
-                try:
-                    queue.put_nowait(tob)
-                except aio.QueueFull:
-                    pass
+            for ev in msg.get("events", []):
+                # Support both new “tickers” array and legacy flat events
+                for t in ev.get("tickers", [ev]):
+                    product = t.get("product_id")
+                    if product not in symbols:
+                        continue
+                    bid = t.get("best_bid") or t.get("bid_price")
+                    ask = t.get("best_ask") or t.get("ask_price")
+                    ts = t.get("time") or msg.get("timestamp")
+                    tob = TopOfBook(
+                        symbol=product,
+                        bid=float(bid),
+                        ask=float(ask),
+                        ts=float(ts) if ts and ts.replace(".", "", 1).isdigit() else time.time(),
+                    )
+                    try:
+                        queue.put_nowait(tob)
+                    except aio.QueueFull:
+                        pass
 
         self._ws = WSClient(on_message=_on_msg, api_key=self.api_key, api_secret=self.api_secret)
         await self._async(self._ws.open)

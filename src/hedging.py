@@ -44,6 +44,7 @@ async def reach_position(
     active_since = now()
 
     latest_pos = await client.get_position(symbol)
+    print(f"latest position: {symbol} - {latest_pos}")
 
     def need() -> Tuple[float, Optional[Side]]:
         """Compute remaining quantity and desired side to move towards target.
@@ -52,6 +53,7 @@ async def reach_position(
         target within tolerance), side is ``None``.
         """
         remaining = target_qty - latest_pos.qty
+        print(f"remaining position: {remaining} vs {cfg.position_tolerance}")
         if abs(remaining) <= cfg.position_tolerance:
             return 0.0, None
         side = Side.BUY if remaining > 0 else Side.SELL
@@ -212,6 +214,7 @@ async def spot_swaps_hedge(
       independently marches toward its own target using ``reach_position``.
     - If one leg completes earlier, we continue driving the other leg until done.
     - Any exception in a leg cancels the sibling and re-raises.
+    :rtype: object
     """
     cfg = cfg or ExecConfig()
 
