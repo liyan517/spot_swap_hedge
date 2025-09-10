@@ -16,6 +16,7 @@ import asyncio as aio
 import contextlib
 import json
 import time
+import inspect
 from typing import AsyncIterator, Optional, Sequence, List, Callable, Any
 
 from coinbase.rest import RESTClient
@@ -45,8 +46,18 @@ class CoinbaseClient(ExchangeClient):
 
     # --- helpers ---------------------------------------------------------
     async def _async(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        """Execute the blocking REST/WS call in the default executor."""
+        """Execute a callable or awaitable, offloading blocking work if needed."""
         loop = aio.get_running_loop()
+
+        # ``fn`` may be an awaitable object or a coroutine function.  In either
+        # case we should await it directly rather than delegating to the thread
+        # pool which would return the coroutine object without executing it.
+        if inspect.isawaitable(fn):
+            return await fn  # type: ignore[arg-type]
+        if aio.iscoroutinefunction(fn):  # type: ignore[arg-type]
+            return await fn(*args, **kwargs)
+
+        # Fall back to running potentially blocking call in the default executor.
         return await loop.run_in_executor(None, lambda: fn(*args, **kwargs))
 
     # --- Positions ---
